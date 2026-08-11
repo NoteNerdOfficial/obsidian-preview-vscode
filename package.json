@@ -1,0 +1,132 @@
+{
+  "name": "obsidian-preview",
+  "displayName": "Obsidian Preview",
+  "description": "Interactive preview for Obsidian vaults in VS Code. Runs DataviewJS and DQL blocks, resolves wikilinks, and writes task toggles back to the file.",
+  "version": "0.2.1",
+  "publisher": "notenerd",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/NoteNerdOfficial/obsidian-preview-vscode.git"
+  },
+  "bugs": {
+    "url": "https://github.com/NoteNerdOfficial/obsidian-preview-vscode/issues"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Visualization",
+    "Notebooks",
+    "Other"
+  ],
+  "keywords": [
+    "obsidian",
+    "dataview",
+    "dataviewjs",
+    "dql",
+    "markdown",
+    "wikilink",
+    "vault"
+  ],
+  "main": "./dist/extension.js",
+  "activationEvents": [
+    "onLanguage:markdown"
+  ],
+  "contributes": {
+    "customEditors": [
+      {
+        "viewType": "obsidianPreview.editor",
+        "displayName": "Obsidian Preview",
+        "selector": [
+          {
+            "filenamePattern": "*.md"
+          }
+        ],
+        "priority": "option"
+      }
+    ],
+    "commands": [
+      {
+        "command": "obsidianPreview.open",
+        "title": "Obsidian Preview: Open Preview to the Side",
+        "icon": "$(open-preview)"
+      },
+      {
+        "command": "obsidianPreview.reindex",
+        "title": "Obsidian Preview: Rebuild Vault Index"
+      }
+    ],
+    "menus": {
+      "editor/title": [
+        {
+          "command": "obsidianPreview.open",
+          "when": "editorLangId == markdown",
+          "group": "navigation"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Obsidian Preview",
+      "properties": {
+        "obsidianPreview.vaultRoot": {
+          "type": "string",
+          "default": "",
+          "description": "Vault root relative to the workspace folder. Empty means the workspace folder itself."
+        },
+        "obsidianPreview.exclude": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "**/node_modules/**",
+            "**/.git/**",
+            "**/.obsidian/**",
+            "**/.trash/**"
+          ],
+          "description": "Glob patterns excluded from the vault index."
+        },
+        "obsidianPreview.enableDataviewJs": {
+          "type": "boolean",
+          "default": true,
+          "description": "Execute dataviewjs code blocks. These run as JavaScript inside the preview webview."
+        },
+        "obsidianPreview.dailyNoteFormat": {
+          "type": "string",
+          "default": "yyyy-MM-dd",
+          "description": "Luxon format used to derive file.day from a note's filename."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run build",
+    "dev": "node esbuild.config.mjs watch",
+    "typecheck": "tsc --noEmit",
+    "test": "tsx test/unit.ts",
+    "test:vault": "tsx test/run-vault.ts",
+    "test:links": "tsx test/check-links.ts",
+    "test:props": "tsx test/preview-frontmatter.ts",
+    "build": "tsc --noEmit && node esbuild.config.mjs production",
+    "package": "vsce package"
+  },
+  "dependencies": {
+    "js-yaml": "^4.1.0",
+    "luxon": "^3.7.2",
+    "markdown-it": "^14.1.0",
+    "moment": "^2.30.1"
+  },
+  "devDependencies": {
+    "@types/js-yaml": "^4.0.9",
+    "@types/luxon": "^3.7.1",
+    "@types/markdown-it": "^14.1.2",
+    "@types/node": "^20.11.0",
+    "@types/vscode": "^1.85.0",
+    "@vscode/vsce": "^3.0.0",
+    "esbuild": "^0.24.0",
+    "linkedom": "^0.18.5",
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3"
+  }
+}
