@@ -4,10 +4,13 @@ Interactive preview for Obsidian vaults in VS Code. Runs **DataviewJS**, **DQL**
 **Obsidian Bases**, resolves wikilinks, and writes task toggles back to the source file.
 
 <p align="center">
-  <img src="docs/screenshot-properties-and-base.png" width="49%" alt="Properties panel and an embedded Base rendered side by side with the raw markdown source">
-  <img src="docs/screenshot-tasks-and-queries.png" width="49%" alt="Interactive task checkboxes and DQL query results rendered side by side with the raw markdown source">
+  <img src="docs/screenshot-properties-and-base.png" width="85%" alt="Properties panel and an embedded Base rendered side by side with the raw markdown source"><br>
+  <sub>Properties panel and an embedded Base. Left: raw markdown source. Right: Obsidian Preview.</sub>
 </p>
-<p align="center"><sub>Left: raw markdown source. Right: Obsidian Preview — properties panel, an embedded Base, editable task checkboxes, and live DQL results.</sub></p>
+<p align="center">
+  <img src="docs/screenshot-tasks-and-queries.png" width="85%" alt="Interactive task checkboxes and DQL query results rendered side by side with the raw markdown source"><br>
+  <sub>Editable task checkboxes and live DQL results. Left: raw markdown source. Right: Obsidian Preview.</sub>
+</p>
 
 ## Why a custom editor
 
