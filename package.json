@@ -2,9 +2,10 @@
   "name": "obsidian-preview",
   "displayName": "Obsidian Preview",
   "description": "Interactive preview for Obsidian vaults in VS Code. Runs DataviewJS and DQL blocks, resolves wikilinks, and writes task toggles back to the file.",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "publisher": "notenerd",
   "license": "MIT",
+  "icon": "icon.png",
   "repository": {
     "type": "git",
     "url": "https://github.com/NoteNerdOfficial/obsidian-preview-vscode.git"
