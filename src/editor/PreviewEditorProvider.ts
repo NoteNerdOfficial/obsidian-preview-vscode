@@ -8,17 +8,20 @@ import type {
 } from '../../shared/protocol';
 import { VaultIndex } from '../index/VaultIndex';
 
-const VIEW_TYPE = 'obsidianPreview.editor';
-
 /**
  * A CustomTextEditorProvider rather than a read-only custom editor: it hands us
  * the TextDocument, so undo/redo, dirty state and saving all flow through
  * VS Code's normal pipeline instead of being reimplemented.
+ *
+ * The same provider backs two viewTypes — markdown notes and standalone
+ * `.base` files — since the only real difference is what "mode" the webview
+ * is told to render in; everything else (index delivery, RPC, link/task
+ * write-back) is identical.
  */
 export class PreviewEditorProvider implements vscode.CustomTextEditorProvider {
-  static register(context: vscode.ExtensionContext, index: VaultIndex): vscode.Disposable {
+  static register(context: vscode.ExtensionContext, index: VaultIndex, viewType: string): vscode.Disposable {
     const provider = new PreviewEditorProvider(context, index);
-    return vscode.window.registerCustomEditorProvider(VIEW_TYPE, provider, {
+    return vscode.window.registerCustomEditorProvider(viewType, provider, {
       webviewOptions: { retainContextWhenHidden: true },
       supportsMultipleEditorsPerDocument: true
     });
@@ -31,8 +34,8 @@ export class PreviewEditorProvider implements vscode.CustomTextEditorProvider {
     private readonly index: VaultIndex
   ) {
     this.context.subscriptions.push(
-      this.index.onDidChange(({ changed, removed }) => {
-        this.broadcast({ type: 'indexDelta', changed, removed });
+      this.index.onDidChange(({ changed, removed, changedFiles, removedFiles }) => {
+        this.broadcast({ type: 'indexDelta', changed, removed, changedFiles, removedFiles });
       })
     );
   }
@@ -90,6 +93,7 @@ export class PreviewEditorProvider implements vscode.CustomTextEditorProvider {
     post({
       type: 'init',
       currentPath: relPath,
+      mode: relPath.toLowerCase().endsWith('.base') ? 'base' : 'markdown',
       settings: {
         enableDataviewJs:
           vscode.workspace.getConfiguration('obsidianPreview').get<boolean>('enableDataviewJs') ??
@@ -107,16 +111,27 @@ export class PreviewEditorProvider implements vscode.CustomTextEditorProvider {
 
   private sendIndex(post: (m: HostMessage) => void): void {
     const pages = this.index.allPages();
+    const files = this.index.allFiles();
+
     // Chunked so a large vault does not block the message channel with one
-    // enormous structured clone.
-    const CHUNK = 400;
-    if (pages.length === 0) {
-      post({ type: 'index', pages: [], complete: true });
-      return;
+    // enormous structured clone. Pages carry parsed content and go out in
+    // small chunks; file entries are tiny path/stat records and go out in
+    // much larger ones.
+    const PAGE_CHUNK = 400;
+    const FILE_CHUNK = 4000;
+
+    const pageChunks = pages.length ? chunk(pages, PAGE_CHUNK) : [[]];
+    const fileChunks = files.length ? chunk(files, FILE_CHUNK) : [[]];
+    const totalChunks = pageChunks.length + fileChunks.length;
+    let sent = 0;
+
+    for (const slice of pageChunks) {
+      sent++;
+      post({ type: 'index', pages: slice, files: [], complete: sent >= totalChunks });
     }
-    for (let i = 0; i < pages.length; i += CHUNK) {
-      const slice = pages.slice(i, i + CHUNK);
-      post({ type: 'index', pages: slice, complete: i + CHUNK >= pages.length });
+    for (const slice of fileChunks) {
+      sent++;
+      post({ type: 'index', pages: [], files: slice, complete: sent >= totalChunks });
     }
   }
 
@@ -425,6 +440,12 @@ function makeNonce(): string {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
   let out = '';
   for (let i = 0; i < 32; i++) out += chars.charAt(Math.floor(Math.random() * chars.length));
+  return out;
+}
+
+function chunk<T>(items: T[], size: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
   return out;
 }
 

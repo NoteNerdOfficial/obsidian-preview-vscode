@@ -61,6 +61,24 @@ export interface RawSection {
   line: number;
 }
 
+/**
+ * Any vault file, markdown or not. `vault.getFiles()` in Obsidian returns
+ * every file — attachments, PDFs, images — not just notes, and vault
+ * automation (inbox/triage scripts) routinely filters this by path before
+ * anything has been converted into a note. `RawPage` above is a superset of
+ * this shape for markdown files; this exists so non-markdown files are
+ * visible at all.
+ */
+export interface RawFileEntry {
+  path: string;
+  name: string;
+  folder: string;
+  ext: string;
+  ctime: number;
+  mtime: number;
+  size: number;
+}
+
 export interface RawPage {
   /** Vault-relative, POSIX separators, including extension. */
   path: string;
@@ -89,10 +107,16 @@ export interface RawPage {
 
 /** Extension host -> webview. */
 export type HostMessage =
-  | { type: 'init'; settings: PreviewSettings; currentPath: string }
+  | { type: 'init'; settings: PreviewSettings; currentPath: string; mode: 'markdown' | 'base' }
   | { type: 'document'; path: string; text: string; version: number }
-  | { type: 'index'; pages: RawPage[]; complete: boolean }
-  | { type: 'indexDelta'; changed: RawPage[]; removed: string[] }
+  | { type: 'index'; pages: RawPage[]; files: RawFileEntry[]; complete: boolean }
+  | {
+      type: 'indexDelta';
+      changed: RawPage[];
+      removed: string[];
+      changedFiles: RawFileEntry[];
+      removedFiles: string[];
+    }
   | { type: 'response'; id: number; ok: true; value: unknown }
   | { type: 'response'; id: number; ok: false; error: string };
 

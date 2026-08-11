@@ -13,19 +13,28 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   index = new VaultIndex(root);
   context.subscriptions.push(index);
-  context.subscriptions.push(PreviewEditorProvider.register(context, index));
+  context.subscriptions.push(PreviewEditorProvider.register(context, index, 'obsidianPreview.editor'));
+  context.subscriptions.push(
+    PreviewEditorProvider.register(context, index, 'obsidianPreview.baseEditor')
+  );
 
   context.subscriptions.push(
     vscode.commands.registerCommand('obsidianPreview.open', async () => {
       const active = vscode.window.activeTextEditor;
-      if (!active || active.document.languageId !== 'markdown') {
-        void vscode.window.showInformationMessage('Open a markdown note first.');
+      const path = active?.document.uri.path.toLowerCase() ?? '';
+      const viewType = path.endsWith('.base')
+        ? 'obsidianPreview.baseEditor'
+        : path.endsWith('.md')
+          ? 'obsidianPreview.editor'
+          : null;
+      if (!active || !viewType) {
+        void vscode.window.showInformationMessage('Open a markdown note or a .base file first.');
         return;
       }
       await vscode.commands.executeCommand(
         'vscode.openWith',
         active.document.uri,
-        'obsidianPreview.editor',
+        viewType,
         vscode.ViewColumn.Beside
       );
     })

@@ -22,6 +22,21 @@ body {
   overflow-wrap: break-word;
 }
 
+/* A standalone .base file is the whole panel, not note prose — the 45rem
+   column meant for reading text would cramp a wide table. */
+.markdown-preview-view.is-base-root {
+  max-width: none;
+  padding: 1.5rem;
+}
+.markdown-preview-view.is-base-root .base-embed {
+  margin: 0;
+  border: none;
+  border-radius: 0;
+}
+.markdown-preview-view.is-base-root .base-header {
+  border-radius: 8px 8px 0 0;
+}
+
 h1, h2, h3, h4, h5, h6 {
   line-height: 1.3;
   margin: 1.6em 0 0.6em;

@@ -700,6 +700,111 @@ async function main() {
   );
 
   // -------------------------------------------------------------------------
+  console.log('\n[vault files] non-markdown files are visible');
+  // Reproduces the reported bug directly: an inbox script filters
+  // vault.getFiles() by path prefix looking for images dropped in before
+  // conversion. If the index only tracks .md, this silently returns nothing
+  // even though the files are sitting right there.
+  const { createApp } = await import('../webview/obsidian/app');
+
+  const fPages = [buildPage('creditor/notes.md', '---\ntype: note\n---\n', stat, 'yyyy-MM-dd')];
+  buildLinkGraph(fPages);
+  const fIndex = new PageIndex();
+  fIndex.upsert(fPages);
+  fIndex.upsertFiles([
+    { path: 'creditor/_inbox/IMG_0359.HEIC', name: 'IMG_0359', folder: 'creditor/_inbox', ext: 'HEIC', ctime: 1, mtime: 2, size: 1200000 },
+    { path: 'creditor/_inbox/IMG_0360.HEIC', name: 'IMG_0360', folder: 'creditor/_inbox', ext: 'HEIC', ctime: 1, mtime: 2, size: 1100000 },
+    { path: 'creditor/notes.md', name: 'notes', folder: 'creditor', ext: 'md', ctime: 0, mtime: 0, size: 20 }
+  ]);
+
+  const stubBridge = { request: async () => null, post: () => {}, log: () => {} };
+  const fakeApp = createApp(fIndex, stubBridge as never, () => 'creditor/notes.md', 'test-vault');
+
+  check('vault.getFiles() count includes non-markdown files', fakeApp.vault.getFiles().length, 3);
+  check(
+    // Real TFile.name includes the extension ("IMG_0359.HEIC"); .basename
+    // is the stripped form — an inbox script displaying files uses basename.
+    'inbox script filter finds the HEIC files',
+    fakeApp.vault
+      .getFiles()
+      .filter((f) => f.path.startsWith('creditor/_inbox/'))
+      .map((f) => f.basename)
+      .sort(),
+    ['IMG_0359', 'IMG_0360']
+  );
+  check('TFile.name keeps the real extension', fakeApp.vault.getFiles().find((f) => f.basename === 'IMG_0359')?.name, 'IMG_0359.HEIC');
+  check(
+    'HEIC file carries its real extension and size',
+    (() => {
+      const f = fakeApp.vault.getFiles().find((x) => x.basename === 'IMG_0359');
+      return f ? [f.extension, f.stat.size] : null;
+    })(),
+    ['HEIC', 1200000]
+  );
+  check(
+    'vault.getMarkdownFiles() still excludes attachments',
+    fakeApp.vault.getMarkdownFiles().map((f) => f.path),
+    ['creditor/notes.md']
+  );
+  check(
+    'getAbstractFileByPath resolves a non-markdown file',
+    fakeApp.vault.getAbstractFileByPath('creditor/_inbox/IMG_0359.HEIC')?.basename,
+    'IMG_0359'
+  );
+  check(
+    'getAbstractFileByPath still resolves a markdown file by bare path',
+    fakeApp.vault.getAbstractFileByPath('creditor/notes')?.path,
+    'creditor/notes.md'
+  );
+  check(
+    'getAbstractFileByPath returns null for a genuinely missing file',
+    fakeApp.vault.getAbstractFileByPath('nope/nothing.png'),
+    null
+  );
+
+  fIndex.removeFiles(['creditor/_inbox/IMG_0360.HEIC']);
+  check('removeFiles drops the entry', fakeApp.vault.getFiles().length, 2);
+
+  // -------------------------------------------------------------------------
+  console.log('\n[vault files] PageIndex file map');
+  const pi = new PageIndex();
+  check('allFiles starts empty', pi.allFiles(), []);
+  pi.upsertFiles([{ path: 'a.png', name: 'a', folder: '', ext: 'png', ctime: 0, mtime: 0, size: 10 }]);
+  check('upsertFiles adds an entry', pi.allFiles().length, 1);
+  check('getFileEntry finds it', pi.getFileEntry('a.png')?.ext, 'png');
+  check('getFileEntry misses a non-existent path', pi.getFileEntry('missing.png'), undefined);
+  pi.upsertFiles([{ path: 'a.png', name: 'a', folder: '', ext: 'png', ctime: 0, mtime: 5, size: 20 }]);
+  check('upsertFiles overwrites by path rather than duplicating', pi.allFiles().length, 1);
+  check('overwrite carries the new stat', pi.getFileEntry('a.png')?.size, 20);
+  pi.removeFiles(['a.png']);
+  check('removeFiles empties the map', pi.allFiles(), []);
+
+  // -------------------------------------------------------------------------
+  console.log('\n[bases] standalone .base rendering uses the same engine as embeds');
+  // main.ts's renderStandaloneBase() is just parseBase + renderBase against
+  // the document text directly — the exact same functions already covered by
+  // the embed tests above, so this pins that the wiring produces the same
+  // shape rather than re-deriving full coverage.
+  const standaloneYaml = [
+    'views:',
+    '  - type: table',
+    '    name: "All"',
+    '    order:',
+    '      - file.name',
+    '      - type'
+  ].join('\n');
+  const standaloneDef = parseBase(standaloneYaml);
+  check('standalone base parses', standaloneDef.errors, []);
+  const standaloneEl = renderBase(standaloneDef, {
+    index: fIndex,
+    currentPath: 'Overview.base',
+    resolve: () => null,
+    title: 'Overview'
+  });
+  const stq = standaloneEl as unknown as { querySelector(s: string): { textContent: string } | null };
+  check('standalone base title comes from the file name, not a note', stq.querySelector('.base-title')?.textContent, 'Overview');
+
+  // -------------------------------------------------------------------------
   console.log(`\n${passed} passed, ${failures.length} failed`);
   if (failures.length) {
     console.log('\nFailures:');

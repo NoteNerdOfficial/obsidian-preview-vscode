@@ -2,7 +2,7 @@
   "name": "obsidian-preview",
   "displayName": "Obsidian Preview",
   "description": "Interactive preview for Obsidian vaults in VS Code. Runs DataviewJS and DQL blocks, resolves wikilinks, and writes task toggles back to the file.",
-  "version": "0.2.2",
+  "version": "0.3.0",
   "publisher": "notenerd",
   "license": "MIT",
   "icon": "icon.png",
@@ -26,13 +26,15 @@
     "dataview",
     "dataviewjs",
     "dql",
+    "bases",
     "markdown",
     "wikilink",
     "vault"
   ],
   "main": "./dist/extension.js",
   "activationEvents": [
-    "onLanguage:markdown"
+    "onLanguage:markdown",
+    "onCustomEditor:obsidianPreview.baseEditor"
   ],
   "contributes": {
     "customEditors": [
@@ -45,6 +47,16 @@
           }
         ],
         "priority": "option"
+      },
+      {
+        "viewType": "obsidianPreview.baseEditor",
+        "displayName": "Obsidian Base",
+        "selector": [
+          {
+            "filenamePattern": "*.base"
+          }
+        ],
+        "priority": "default"
       }
     ],
     "commands": [

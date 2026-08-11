@@ -56,10 +56,12 @@ collapses into one table whose first column is the group key. Task rows inherit 
 fields (`file.link`, frontmatter), with the task's own implicit fields taking precedence.
 Duration literals (`dur(14 days)`) and date keywords (`date(today)`, `sow`, `eom`) work.
 
-**Obsidian Bases** — `![[Something.base]]` embeds and ` ```base ` blocks render as a tabbed
-view switcher with **table**, **cards**, and **list** views, matching Obsidian's layout.
-Supports base-level and per-view `filters` (`and` / `or` / `not`), `formulas`, `properties`
-`displayName`, `groupBy`, `sort`, and `limit`.
+**Obsidian Bases** — `.base` files render the same way whether embedded or opened directly.
+Open one on its own (double-click in the Explorer, or **Obsidian Preview: Open Preview to the
+Side**) and it fills the panel as a full tabbed view switcher; `![[Something.base]]` embeds and
+` ```base ` blocks render the identical view inline. All render as **table**, **cards**, and
+**list** views matching Obsidian's layout, with base-level and per-view `filters`
+(`and` / `or` / `not`), `formulas`, `properties.displayName`, `groupBy`, `sort`, and `limit`.
 
 Bases has its own expression language, separate from DQL — `==` / `&&` / `||`, method chaining
 (`list("done").contains(status)`, `type.upper().startsWith("I")`), and a `file` namespace with
@@ -85,6 +87,11 @@ block. No separate setting to enable, unlike Obsidian.
 and an `app` shim covering `vault.read/modify/create/delete/getAbstractFileByPath`,
 `workspace.openLinkText/getActiveFile/activeLeaf`, `metadataCache.getFirstLinkpathDest/
 getFileCache/resolvedLinks`, and `commands.executeCommandById`.
+
+`vault.getFiles()` returns every vault file, not just notes — the index tracks a lightweight
+path/stat entry for every file (images, PDFs, unconverted attachments) alongside the fully
+parsed markdown pages, so an inbox/triage script filtering by path sees files that haven't
+become notes yet. `vault.getMarkdownFiles()` still returns only `.md` files, matching Obsidian.
 
 `dv.view("name", input)` loads `name/view.js` (or `name.js`) plus a sibling `view.css` from the
 vault and executes it, the way Obsidian does.
@@ -113,7 +120,7 @@ vault and executes it, the way Obsidian does.
 npm install
 npm run dev          # esbuild watch
 npm run typecheck
-npm test             # 177 regression tests, no VS Code needed
+npm test             # 195 regression tests, no VS Code needed
 ```
 
 Two harnesses run the engine headlessly against a real vault:
@@ -130,7 +137,10 @@ count does not hide a broken resolver.
 
 A few behaviours are easy to get subtly wrong and are covered by tests:
 
-- `file.name` excludes the extension (Obsidian's does).
+- `file.name` excludes the extension (Obsidian's does) — but that's Dataview's own
+  `page.file.name` convention. The raw `app.vault.getFiles()` shim returns real `TFile`-shaped
+  objects, where `.name` includes the extension and `.basename` is the stripped form, matching
+  actual Obsidian behavior. Don't "fix" one to match the other — they're deliberately different.
 - `FROM "notes"` matches on a path boundary — it must not match `my-notes-archive/`.
 - Tags are not harvested from code fences, inline code, or URL fragments.
 - `[[Foo]]` prefers a same-folder match before a vault-root one; ambiguous basenames fall back

@@ -89,10 +89,15 @@ export function createApp(
   const pathOf = (file: TFile | string): string =>
     typeof file === 'string' ? file : file.path;
 
+  // Markdown notes carry full parsed content in `getRaw`; every other file
+  // (images, PDFs, attachments dropped into an inbox before conversion) only
+  // has a lightweight path/stat entry. Both resolve to the same TFile shape.
   const toTFile = (path: string): TFile | null => {
     const raw = index.getRaw(path);
-    if (!raw) return null;
-    return makeTFile(raw.path, raw.ctime, raw.mtime, raw.size);
+    if (raw) return makeTFile(raw.path, raw.ctime, raw.mtime, raw.size);
+    const entry = index.getFileEntry(path);
+    if (entry) return makeTFile(entry.path, entry.ctime, entry.mtime, entry.size);
+    return null;
   };
 
   const vault: VaultShim = {
@@ -115,7 +120,10 @@ export function createApp(
       return index.paths().map((p) => toTFile(p)!).filter(Boolean);
     },
     getFiles() {
-      return this.getMarkdownFiles();
+      // Obsidian's getFiles() returns every vault file, not just notes — an
+      // inbox/triage script filtering by path needs to see images and other
+      // attachments that haven't become notes yet.
+      return index.allFiles().map((f) => toTFile(f.path)!).filter(Boolean);
     },
     getName() {
       return vaultName;

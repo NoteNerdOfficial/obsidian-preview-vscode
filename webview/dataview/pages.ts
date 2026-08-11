@@ -1,5 +1,5 @@
 import { DateTime } from 'luxon';
-import type { RawPage, RawTask } from '../../shared/protocol';
+import type { RawFileEntry, RawPage, RawTask } from '../../shared/protocol';
 import { dataArray, DataArray, Link } from './values';
 
 export interface TaskValue extends Record<string, unknown> {
@@ -220,6 +220,12 @@ export class PageIndex {
   private raw = new Map<string, RawPage>();
   private built = new Map<string, PageValue>();
   private inlinks = new Map<string, string[]>();
+  /**
+   * Every vault file, markdown or not — this is what `vault.getFiles()`
+   * reads from. `raw` above only ever holds markdown notes, so a snippet
+   * listing images or other attachments by path needs this separate map.
+   */
+  private files = new Map<string, RawFileEntry>();
 
   upsert(pages: RawPage[]): void {
     for (const page of pages) {
@@ -237,10 +243,27 @@ export class PageIndex {
     this.recomputeInlinks();
   }
 
+  upsertFiles(entries: RawFileEntry[]): void {
+    for (const entry of entries) this.files.set(entry.path, entry);
+  }
+
+  removeFiles(paths: string[]): void {
+    for (const path of paths) this.files.delete(path);
+  }
+
+  getFileEntry(path: string): RawFileEntry | undefined {
+    return this.files.get(path);
+  }
+
+  allFiles(): RawFileEntry[] {
+    return [...this.files.values()];
+  }
+
   clear(): void {
     this.raw.clear();
     this.built.clear();
     this.inlinks.clear();
+    this.files.clear();
   }
 
   private recomputeInlinks(): void {

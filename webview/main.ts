@@ -30,6 +30,8 @@ let currentPath = '';
 let documentText = '';
 let indexReady = false;
 let renderToken = 0;
+/** 'base' when this panel is showing a standalone .base file, not a note. */
+let mode: 'markdown' | 'base' = 'markdown';
 
 // Obsidian exposes these as globals and vault scripts rely on them.
 const w = window as unknown as Record<string, unknown>;
@@ -48,6 +50,8 @@ bridge.onMessage((message: HostMessage) => {
     case 'init':
       settings = message.settings;
       currentPath = message.currentPath;
+      mode = message.mode;
+      root.classList.toggle('is-base-root', mode === 'base');
       break;
 
     case 'document':
@@ -58,6 +62,7 @@ bridge.onMessage((message: HostMessage) => {
 
     case 'index':
       index.upsert(message.pages);
+      index.upsertFiles(message.files);
       if (message.complete) {
         indexReady = true;
         scheduleRender();
@@ -67,6 +72,8 @@ bridge.onMessage((message: HostMessage) => {
     case 'indexDelta':
       index.upsert(message.changed);
       index.remove(message.removed);
+      index.upsertFiles(message.changedFiles);
+      index.removeFiles(message.removedFiles);
       scheduleRender();
       break;
   }
@@ -86,6 +93,15 @@ function scheduleRender(): void {
 
 async function render(): Promise<void> {
   const token = ++renderToken;
+
+  if (mode === 'base') {
+    if (!indexReady) {
+      root.innerHTML = '<div class="dataview-loading">Indexing vault…</div>';
+      return;
+    }
+    renderStandaloneBase();
+    return;
+  }
 
   // Frontmatter becomes a properties panel; its lines are blanked (not
   // removed) so body line numbers still match the source document.
@@ -167,6 +183,25 @@ async function renderBaseEmbeds(token: number): Promise<void> {
         text: `${target}: ${err instanceof Error ? err.message : String(err)}`
       });
     }
+  }
+}
+
+/**
+ * A `.base` file opened directly (not embedded in a note) renders as the
+ * whole panel — no markdown, no frontmatter, just the tabbed Bases view
+ * against its own YAML.
+ */
+function renderStandaloneBase(): void {
+  root.innerHTML = '';
+  try {
+    const definition = parseBase(documentText);
+    const title = currentPath.slice(currentPath.lastIndexOf('/') + 1).replace(/\.base$/i, '');
+    root.appendChild(renderBase(definition, { ...baseOptions(), title }));
+  } catch (err) {
+    root.createEl('div', {
+      cls: 'base-error',
+      text: `Failed to parse ${currentPath}: ${err instanceof Error ? err.message : String(err)}`
+    });
   }
 }
 

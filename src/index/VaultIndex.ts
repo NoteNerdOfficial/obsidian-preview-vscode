@@ -1,21 +1,28 @@
 import * as vscode from 'vscode';
-import type { RawPage } from '../../shared/protocol';
+import type { RawFileEntry, RawPage } from '../../shared/protocol';
 import { buildPage } from './parse';
 import { buildLinkGraph, LinkResolver } from './links';
 
 export interface IndexChange {
   changed: RawPage[];
   removed: string[];
+  changedFiles: RawFileEntry[];
+  removedFiles: string[];
 }
 
 /**
- * Vault-wide markdown index.
+ * Vault-wide index: full parsing for markdown notes, plus a lightweight
+ * path/stat entry for every other file (images, PDFs, attachments — anything
+ * `vault.getFiles()` should see in Obsidian). The two are scanned and watched
+ * together off a single `**\/*` glob so an inbox-style script that lists
+ * unconverted attachments by path sees them immediately, not just notes.
  *
  * Uses `vscode.workspace.fs` rather than `node:fs` so the extension keeps
  * working in Remote/WSL/Codespaces and on virtual filesystems.
  */
 export class VaultIndex implements vscode.Disposable {
   private pages = new Map<string, RawPage>();
+  private files = new Map<string, RawFileEntry>();
   private inlinks = new Map<string, string[]>();
   private resolver = new LinkResolver([]);
   private watcher: vscode.FileSystemWatcher | undefined;
@@ -46,8 +53,16 @@ export class VaultIndex implements vscode.Disposable {
     return [...this.pages.values()];
   }
 
+  allFiles(): RawFileEntry[] {
+    return [...this.files.values()];
+  }
+
   getPage(path: string): RawPage | undefined {
     return this.pages.get(path);
+  }
+
+  getFileEntry(path: string): RawFileEntry | undefined {
+    return this.files.get(path);
   }
 
   getInlinks(path: string): string[] {
@@ -82,6 +97,7 @@ export class VaultIndex implements vscode.Disposable {
 
   async rebuild(): Promise<void> {
     this.pages.clear();
+    this.files.clear();
     this.inlinks.clear();
     this.scanning = this.scan();
     await this.scanning;
@@ -101,19 +117,18 @@ export class VaultIndex implements vscode.Disposable {
   }
 
   private async scan(): Promise<void> {
-    const pattern = new vscode.RelativePattern(this.root, '**/*.md');
-    const files = await vscode.workspace.findFiles(pattern, this.excludeGlob);
+    const pattern = new vscode.RelativePattern(this.root, '**/*');
+    const uris = await vscode.workspace.findFiles(pattern, this.excludeGlob);
     const format = this.dailyNoteFormat;
 
-    // Bounded concurrency: a 2000-note vault opened with unbounded
-    // Promise.all will exhaust file handles on some platforms.
+    // Bounded concurrency: a vault with thousands of files opened with
+    // unbounded Promise.all will exhaust file handles on some platforms.
     const CONCURRENCY = 32;
     let cursor = 0;
-    const workers = Array.from({ length: Math.min(CONCURRENCY, files.length) }, async () => {
-      while (cursor < files.length) {
-        const uri = files[cursor++];
-        const page = await this.readPage(uri, format);
-        if (page) this.pages.set(page.path, page);
+    const workers = Array.from({ length: Math.min(CONCURRENCY, uris.length) }, async () => {
+      while (cursor < uris.length) {
+        const uri = uris[cursor++];
+        await this.indexUri(uri, format);
       }
     });
     await Promise.all(workers);
@@ -122,16 +137,23 @@ export class VaultIndex implements vscode.Disposable {
     this._onDidCompleteScan.fire();
   }
 
-  private async readPage(uri: vscode.Uri, format: string): Promise<RawPage | null> {
+  /** Index one vault file: full parse for markdown, a lightweight stat entry for everything else. */
+  private async indexUri(uri: vscode.Uri, format: string): Promise<{ page?: RawPage; file?: RawFileEntry } | null> {
     const rel = this.toRelative(uri);
     if (!rel) return null;
     try {
-      const [bytes, stat] = await Promise.all([
-        vscode.workspace.fs.readFile(uri),
-        vscode.workspace.fs.stat(uri)
-      ]);
-      const text = new TextDecoder('utf-8').decode(bytes);
-      return buildPage(rel, text, { ctime: stat.ctime, mtime: stat.mtime, size: stat.size }, format);
+      const stat = await vscode.workspace.fs.stat(uri);
+      const entry = toFileEntry(rel, stat);
+      this.files.set(rel, entry);
+
+      if (entry.ext.toLowerCase() === 'md') {
+        const bytes = await vscode.workspace.fs.readFile(uri);
+        const text = new TextDecoder('utf-8').decode(bytes);
+        const page = buildPage(rel, text, { ctime: stat.ctime, mtime: stat.mtime, size: stat.size }, format);
+        this.pages.set(rel, page);
+        return { page, file: entry };
+      }
+      return { file: entry };
     } catch {
       return null;
     }
@@ -153,6 +175,15 @@ export class VaultIndex implements vscode.Disposable {
       this.dailyNoteFormat
     );
     this.pages.set(rel, page);
+    this.files.set(rel, {
+      path: page.path,
+      name: page.name,
+      folder: page.folder,
+      ext: page.ext,
+      ctime: page.ctime,
+      mtime: page.mtime,
+      size: page.size
+    });
     this.rebuildGraph();
     return page;
   }
@@ -165,7 +196,7 @@ export class VaultIndex implements vscode.Disposable {
 
   private startWatching(): void {
     if (this.watcher) return;
-    const pattern = new vscode.RelativePattern(this.root, '**/*.md');
+    const pattern = new vscode.RelativePattern(this.root, '**/*');
     this.watcher = vscode.workspace.createFileSystemWatcher(pattern);
     this.disposables.push(
       this.watcher,
@@ -174,11 +205,13 @@ export class VaultIndex implements vscode.Disposable {
       this.watcher.onDidDelete((uri) => this.markDeleted(uri))
     );
 
-    // `.base` files are not indexed as notes, but editing one must still
-    // re-render any preview embedding it.
+    // A `.base` file embedded elsewhere isn't itself in `pages`/`files` change
+    // tracking terms that matter to a consumer, but any preview embedding it
+    // still needs to re-render when it's edited.
     const basePattern = new vscode.RelativePattern(this.root, '**/*.base');
     this.baseWatcher = vscode.workspace.createFileSystemWatcher(basePattern);
-    const fireBaseChange = () => this._onDidChange.fire({ changed: [], removed: [] });
+    const fireBaseChange = () =>
+      this._onDidChange.fire({ changed: [], removed: [], changedFiles: [], removedFiles: [] });
     this.disposables.push(
       this.baseWatcher,
       this.baseWatcher.onDidCreate(fireBaseChange),
@@ -198,6 +231,7 @@ export class VaultIndex implements vscode.Disposable {
     const rel = this.toRelative(uri);
     if (!rel) return;
     this.pages.delete(rel);
+    this.files.delete(rel);
     this.dirty.add(rel);
     this.scheduleFlush();
   }
@@ -220,21 +254,27 @@ export class VaultIndex implements vscode.Disposable {
     const format = this.dailyNoteFormat;
     const changed: RawPage[] = [];
     const removed: string[] = [];
+    const changedFiles: RawFileEntry[] = [];
+    const removedFiles: string[] = [];
 
     for (const rel of paths) {
       const uri = this.toUri(rel);
-      const page = await this.readPage(uri, format);
-      if (page) {
-        this.pages.set(rel, page);
-        changed.push(page);
+      const result = await this.indexUri(uri, format);
+      if (result?.file) {
+        changedFiles.push(result.file);
+        if (result.page) changed.push(result.page);
       } else {
+        // Deleted, or unreadable — markDeleted already dropped it from both
+        // maps; report it as removed either way so the webview drops it too.
         this.pages.delete(rel);
+        this.files.delete(rel);
         removed.push(rel);
+        removedFiles.push(rel);
       }
     }
 
     this.rebuildGraph();
-    this._onDidChange.fire({ changed, removed });
+    this._onDidChange.fire({ changed, removed, changedFiles, removedFiles });
   }
 
   dispose(): void {
@@ -246,4 +286,14 @@ export class VaultIndex implements vscode.Disposable {
     this._onDidChange.dispose();
     this._onDidCompleteScan.dispose();
   }
+}
+
+function toFileEntry(rel: string, stat: vscode.FileStat): RawFileEntry {
+  const slash = rel.lastIndexOf('/');
+  const folder = slash >= 0 ? rel.slice(0, slash) : '';
+  const filename = slash >= 0 ? rel.slice(slash + 1) : rel;
+  const dot = filename.lastIndexOf('.');
+  const name = dot > 0 ? filename.slice(0, dot) : filename;
+  const ext = dot > 0 ? filename.slice(dot + 1) : '';
+  return { path: rel, name, folder, ext, ctime: stat.ctime, mtime: stat.mtime, size: stat.size };
 }
