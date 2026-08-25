@@ -105,7 +105,7 @@ async function render(): Promise<void> {
 
   // Frontmatter becomes a properties panel; its lines are blanked (not
   // removed) so body line numbers still match the source document.
-  const { data: frontmatter, body } = splitFrontmatter(documentText);
+  const { data: frontmatter, body, raw: frontmatterRaw } = splitFrontmatter(documentText);
   const { markdown, blocks } = extractBlocks(body);
 
   root.innerHTML = renderMarkdown(markdown, {
@@ -116,7 +116,7 @@ async function render(): Promise<void> {
   const properties = renderProperties(frontmatter, {
     sourcePath: currentPath,
     resolve: (target, from) => index.resolvePath(target, from),
-    raw: documentText.slice(0, 400)
+    raw: frontmatterRaw
   });
   if (properties) root.insertBefore(properties, root.firstChild);
 

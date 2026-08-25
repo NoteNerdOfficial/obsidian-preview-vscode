@@ -4,6 +4,7 @@ import { renderMarkdown, escapeHtml } from './markdown';
 
 export interface FrontmatterSplit {
   data: Record<string, unknown> | null;
+  raw?: string;
   /**
    * Source with the frontmatter lines blanked out rather than removed, so
    * every downstream line number still matches the real document. Task
@@ -16,7 +17,7 @@ const FRONTMATTER_RE = /^﻿?---[ \t]*\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)/;
 
 export function splitFrontmatter(text: string): FrontmatterSplit {
   const match = text.match(FRONTMATTER_RE);
-  if (!match) return { data: null, body: text };
+  if (!match) return { data: null, body: text, raw: undefined };
 
   let data: Record<string, unknown> | null = null;
   try {
@@ -26,13 +27,15 @@ export function splitFrontmatter(text: string): FrontmatterSplit {
         ? (loaded as Record<string, unknown>)
         : {};
   } catch {
-    data = null; // Malformed YAML — fall through and show the raw block.
+    const consumed = match[0].replace(/\r?\n$/, '').split(/\r?\n/).length;
+    const body = '\n'.repeat(consumed) + text.slice(match[0].length);
+    return { data: null, body, raw: match[1] };
   }
 
   const consumed = match[0].replace(/\r?\n$/, '').split(/\r?\n/).length;
   const body = '\n'.repeat(consumed) + text.slice(match[0].length);
 
-  return { data, body };
+  return { data, body, raw: undefined };
 }
 
 export interface PropertyRenderOptions {
