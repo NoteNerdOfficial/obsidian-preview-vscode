@@ -38,6 +38,19 @@ export class PreviewEditorProvider implements vscode.CustomTextEditorProvider {
         this.broadcast({ type: 'indexDelta', changed, removed, changedFiles, removedFiles });
       })
     );
+
+    // A panel resolved before the initial scan lands (e.g. a `.base` file
+    // opened straight from the Explorer, which activates the extension and
+    // resolves the editor in the same tick) gets an empty index up front.
+    // Re-send the full index to every open panel once a scan completes so
+    // it doesn't stay stuck showing "0 notes".
+    this.context.subscriptions.push(
+      this.index.onDidCompleteScan(() => {
+        for (const panel of this.panels) {
+          this.sendIndex((m) => void panel.webview.postMessage(m));
+        }
+      })
+    );
   }
 
   async resolveCustomTextEditor(
@@ -54,6 +67,7 @@ export class PreviewEditorProvider implements vscode.CustomTextEditorProvider {
     panel.webview.html = this.renderShell(panel.webview);
 
     const relPath = this.index.toRelative(document.uri) ?? document.uri.path;
+    const isBase = relPath.toLowerCase().endsWith('.base');
 
     const post = (message: HostMessage) => {
       void panel.webview.postMessage(message);
@@ -74,7 +88,9 @@ export class PreviewEditorProvider implements vscode.CustomTextEditorProvider {
       vscode.workspace.onDidChangeTextDocument((e) => {
         if (e.document.uri.toString() !== document.uri.toString()) return;
         // Re-index from the buffer so the preview reflects unsaved edits.
-        this.index.indexDocument(e.document);
+        // `.base` files are YAML, not markdown — indexDocument would parse
+        // them as a bogus page and register their basename as a link target.
+        if (!isBase) this.index.indexDocument(e.document);
         pushDocument();
       })
     );
@@ -93,7 +109,7 @@ export class PreviewEditorProvider implements vscode.CustomTextEditorProvider {
     post({
       type: 'init',
       currentPath: relPath,
-      mode: relPath.toLowerCase().endsWith('.base') ? 'base' : 'markdown',
+      mode: isBase ? 'base' : 'markdown',
       settings: {
         enableDataviewJs:
           vscode.workspace.getConfiguration('obsidianPreview').get<boolean>('enableDataviewJs') ??

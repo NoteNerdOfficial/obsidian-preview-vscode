@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import type { RawFileEntry, RawPage } from '../../shared/protocol';
 import { buildPage } from './parse';
 import { buildLinkGraph, LinkResolver } from './links';
+import { isExcluded } from './glob';
 
 export interface IndexChange {
   changed: RawPage[];
@@ -26,7 +27,6 @@ export class VaultIndex implements vscode.Disposable {
   private inlinks = new Map<string, string[]>();
   private resolver = new LinkResolver([]);
   private watcher: vscode.FileSystemWatcher | undefined;
-  private baseWatcher: vscode.FileSystemWatcher | undefined;
   private disposables: vscode.Disposable[] = [];
   private scanning: Promise<void> | null = null;
   private dirty = new Set<string>();
@@ -103,9 +103,12 @@ export class VaultIndex implements vscode.Disposable {
     await this.scanning;
   }
 
+  private get excludePatterns(): string[] {
+    return vscode.workspace.getConfiguration('obsidianPreview').get<string[]>('exclude') ?? [];
+  }
+
   private get excludeGlob(): string {
-    const cfg = vscode.workspace.getConfiguration('obsidianPreview');
-    const patterns = cfg.get<string[]>('exclude') ?? [];
+    const patterns = this.excludePatterns;
     return patterns.length === 1 ? patterns[0] : `{${patterns.join(',')}}`;
   }
 
@@ -155,6 +158,10 @@ export class VaultIndex implements vscode.Disposable {
       }
       return { file: entry };
     } catch {
+      // Stat succeeded but the read failed (lock, permission, transient FS
+      // hiccup) — or stat itself failed. Either way don't leave a half-baked
+      // file entry with no matching page sitting in the map.
+      this.files.delete(rel);
       return null;
     }
   }
@@ -196,6 +203,9 @@ export class VaultIndex implements vscode.Disposable {
 
   private startWatching(): void {
     if (this.watcher) return;
+    // A single `**/*` watcher covers `.base` files too, so editing one fires
+    // through the normal flush → indexDelta path and any preview embedding
+    // it re-renders — no separate watcher needed.
     const pattern = new vscode.RelativePattern(this.root, '**/*');
     this.watcher = vscode.workspace.createFileSystemWatcher(pattern);
     this.disposables.push(
@@ -204,32 +214,18 @@ export class VaultIndex implements vscode.Disposable {
       this.watcher.onDidChange((uri) => this.markDirty(uri)),
       this.watcher.onDidDelete((uri) => this.markDeleted(uri))
     );
-
-    // A `.base` file embedded elsewhere isn't itself in `pages`/`files` change
-    // tracking terms that matter to a consumer, but any preview embedding it
-    // still needs to re-render when it's edited.
-    const basePattern = new vscode.RelativePattern(this.root, '**/*.base');
-    this.baseWatcher = vscode.workspace.createFileSystemWatcher(basePattern);
-    const fireBaseChange = () =>
-      this._onDidChange.fire({ changed: [], removed: [], changedFiles: [], removedFiles: [] });
-    this.disposables.push(
-      this.baseWatcher,
-      this.baseWatcher.onDidCreate(fireBaseChange),
-      this.baseWatcher.onDidChange(fireBaseChange),
-      this.baseWatcher.onDidDelete(fireBaseChange)
-    );
   }
 
   private markDirty(uri: vscode.Uri): void {
     const rel = this.toRelative(uri);
-    if (!rel) return;
+    if (!rel || isExcluded(rel, this.excludePatterns)) return;
     this.dirty.add(rel);
     this.scheduleFlush();
   }
 
   private markDeleted(uri: vscode.Uri): void {
     const rel = this.toRelative(uri);
-    if (!rel) return;
+    if (!rel || isExcluded(rel, this.excludePatterns)) return;
     this.pages.delete(rel);
     this.files.delete(rel);
     this.dirty.add(rel);
@@ -282,7 +278,6 @@ export class VaultIndex implements vscode.Disposable {
     for (const d of this.disposables) d.dispose();
     this.disposables = [];
     this.watcher = undefined;
-    this.baseWatcher = undefined;
     this._onDidChange.dispose();
     this._onDidCompleteScan.dispose();
   }

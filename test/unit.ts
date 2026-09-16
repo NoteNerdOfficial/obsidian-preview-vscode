@@ -805,6 +805,24 @@ async function main() {
   check('standalone base title comes from the file name, not a note', stq.querySelector('.base-title')?.textContent, 'Overview');
 
   // -------------------------------------------------------------------------
+  console.log('\n[glob] exclude pattern matching for watcher events');
+  const { isExcluded } = await import('../src/index/glob');
+  const defaultExcludes = ['**/node_modules/**', '**/.git/**', '**/.obsidian/**', '**/.trash/**'];
+  check(
+    'a dotfolder deep in the tree is excluded',
+    isExcluded('.obsidian/workspace.json', defaultExcludes),
+    true
+  );
+  check(
+    'node_modules anywhere in the path is excluded',
+    isExcluded('vendor/node_modules/pkg/index.md', defaultExcludes),
+    true
+  );
+  check('an ordinary note is not excluded', isExcluded('Notes/Today.md', defaultExcludes), false);
+  check('a single * does not cross a path separator', isExcluded('a/b.md', ['*.md']), false);
+  check('a bare pattern still matches at the root', isExcluded('b.md', ['*.md']), true);
+
+  // -------------------------------------------------------------------------
   console.log(`\n${passed} passed, ${failures.length} failed`);
   if (failures.length) {
     console.log('\nFailures:');

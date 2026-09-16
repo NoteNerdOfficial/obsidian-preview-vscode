@@ -20,23 +20,24 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   context.subscriptions.push(
     vscode.commands.registerCommand('obsidianPreview.open', async () => {
-      const active = vscode.window.activeTextEditor;
-      const path = active?.document.uri.path.toLowerCase() ?? '';
+      // A `.base` file focused in our own custom editor has no
+      // `activeTextEditor` (custom editors aren't text editors), so fall
+      // back to the active tab's URI to find it.
+      const tab = vscode.window.tabGroups.activeTabGroup.activeTab;
+      const uri =
+        vscode.window.activeTextEditor?.document.uri ??
+        (tab?.input instanceof vscode.TabInputCustom ? tab.input.uri : undefined);
+      const path = uri?.path.toLowerCase() ?? '';
       const viewType = path.endsWith('.base')
         ? 'obsidianPreview.baseEditor'
         : path.endsWith('.md')
           ? 'obsidianPreview.editor'
           : null;
-      if (!active || !viewType) {
+      if (!uri || !viewType) {
         void vscode.window.showInformationMessage('Open a markdown note or a .base file first.');
         return;
       }
-      await vscode.commands.executeCommand(
-        'vscode.openWith',
-        active.document.uri,
-        viewType,
-        vscode.ViewColumn.Beside
-      );
+      await vscode.commands.executeCommand('vscode.openWith', uri, viewType, vscode.ViewColumn.Beside);
     })
   );
 
